@@ -59,6 +59,14 @@ function mapEvent(row) {
 function mapTask(row) { return { id: row.id, familyId: row.family_id, title: row.title, done: row.done, createdAt: Date.parse(row.created_at) }; }
 function mapFile(row) { return { id: row.id, familyId: row.family_id, eventId: row.event_id, uploadedBy: row.uploaded_by, storagePath: row.storage_path, name: row.name, type: row.content_type || "", size: Number(row.byte_size), createdAt: Date.parse(row.created_at) }; }
 function mapInvitation(row) { return { id: row.id, familyId: row.family_id, email: row.email, message: row.message || "", status: row.status, createdAt: Date.parse(row.created_at) }; }
+function readableError(error, fallback) {
+  const message = error?.message || "";
+  if (!message) return fallback;
+  if (/row-level security/i.test(message)) return "Dafür fehlen dir gerade die Rechte in diesem Familienraum.";
+  if (/duplicate key/i.test(message)) return "Diese E-Mail-Adresse wird bereits verwendet.";
+  return message.length < 130 ? message : fallback;
+}
+function isFamilyOwner() { return currentUser()?.role === "owner"; }
 
 async function loadWorkspace() {
   const { data: authData, error: authError } = await supabaseClient.auth.getUser();
@@ -77,11 +85,23 @@ async function loadWorkspace() {
     supabaseClient.from("tasks").select("*").eq("family_id", familyId).order("created_at", { ascending: false }),
     supabaseClient.from("files").select("*").eq("family_id", familyId).order("created_at", { ascending: false }),
     supabaseClient.from("invitations").select("*").eq("family_id", familyId).order("created_at", { ascending: false }),
-    supabaseClient.from("invitations").select("*").eq("email", authUser.email).eq("status", "pending").order("created_at", { ascending: false }),
+    supabaseClient.from("invitations").select("*").ilike("email", authUser.email).eq("status", "pending").order("created_at", { ascending: false }),
     supabaseClient.from("family_members").select("user_id, role").eq("family_id", familyId)
   ]);
   if (familyResult.error) { showToast("Dein Familienraum konnte nicht geladen werden"); return false; }
+  const membershipRows = memberResult.data || [];
+  const memberIds = membershipRows.map(member => member.user_id);
+  const { data: memberProfiles } = memberIds.length
+    ? await supabaseClient.from("profiles").select("id, email, display_name, avatar_path").in("id", memberIds)
+    : { data: [] };
+  const profileById = new Map((memberProfiles || []).map(member => [member.id, member]));
+  profileById.set(authUser.id, profile);
   const avatar = profile.avatar_path ? await fileUrl({ storagePath: profile.avatar_path }) : null;
+  const members = await Promise.all(membershipRows.map(async member => {
+    const memberProfile = profileById.get(member.user_id);
+    const memberAvatar = memberProfile?.avatar_path ? await fileUrl({ storagePath: memberProfile.avatar_path }) : null;
+    return { id: member.user_id, role: member.role, username: memberProfile?.display_name || "Familienmitglied", email: memberProfile?.email || "", avatar: memberAvatar };
+  }));
   store = {
     users: [{ id: authUser.id, email: profile.email, username: profile.display_name, familyName: familyResult.data.name, familyId, avatar, avatarPath: profile.avatar_path || null, role: selectedMembership.role }],
     currentUserId: authUser.id,
@@ -90,9 +110,9 @@ async function loadWorkspace() {
     files: (filesResult.data || []).map(mapFile),
     invitations: (invitationsResult.data || []).map(mapInvitation),
     receivedInvitations: (receivedInvitationsResult.data || []).map(mapInvitation),
-    members: memberResult.data || []
+    members
   };
-  subscribeToFamily(familyId);
+  subscribeToFamily(familyId, authUser.email);
   return true;
 }
 
@@ -108,16 +128,18 @@ function syncRemoteWorkspace() {
   }, 350);
 }
 
-function subscribeToFamily(familyId) {
-  if (subscribedFamilyId === familyId) return;
+function subscribeToFamily(familyId, email) {
+  const subscriptionId = `${familyId}:${email || ""}`;
+  if (subscribedFamilyId === subscriptionId) return;
   if (realtimeChannel) supabaseClient.removeChannel(realtimeChannel);
-  subscribedFamilyId = familyId;
-  realtimeChannel = supabaseClient.channel(`familio-${familyId}`)
+  subscribedFamilyId = subscriptionId;
+  let channel = supabaseClient.channel(`familio-${familyId}`)
     .on("postgres_changes", { event: "*", schema: "public", table: "events", filter: `family_id=eq.${familyId}` }, syncRemoteWorkspace)
     .on("postgres_changes", { event: "*", schema: "public", table: "tasks", filter: `family_id=eq.${familyId}` }, syncRemoteWorkspace)
     .on("postgres_changes", { event: "*", schema: "public", table: "files", filter: `family_id=eq.${familyId}` }, syncRemoteWorkspace)
-    .on("postgres_changes", { event: "*", schema: "public", table: "invitations", filter: `family_id=eq.${familyId}` }, syncRemoteWorkspace)
-    .subscribe();
+    .on("postgres_changes", { event: "*", schema: "public", table: "invitations", filter: `family_id=eq.${familyId}` }, syncRemoteWorkspace);
+  if (email) channel = channel.on("postgres_changes", { event: "*", schema: "public", table: "invitations", filter: `email=eq.${email.toLowerCase()}` }, syncRemoteWorkspace);
+  realtimeChannel = channel.subscribe();
 }
 
 function renderAccount() {
@@ -133,12 +155,15 @@ function renderAccount() {
   setAvatar("#familyAvatar", initials(user.familyName).charAt(0));
   $("#profileName").textContent = user.username;
   setAvatar("#profileAvatar", letters);
-  $("#profileRole").textContent = "Profil & Einstellungen";
-  $(".member-lisa").innerHTML = user.avatar ? `<img src="${user.avatar}" alt="" /><i></i>` : `<span id="memberInitials">${letters}</span><i></i>`;
+  $("#profileRole").textContent = user.role === "owner" ? "Organisiert eure Familie" : "Profil & Einstellungen";
+  const visibleMembers = (store.members || []).slice(0, 4);
+  $(".members").innerHTML = `${visibleMembers.map(member => `<button class="member" data-open-profile title="${escapeHtml(member.username)}">${member.avatar ? `<img src="${member.avatar}" alt="" />` : `<span>${initials(member.username)}</span>`}<i></i></button>`).join("")}<button class="more-members" id="memberCount">+0</button>`;
+  document.querySelectorAll("[data-open-profile]").forEach(button => button.addEventListener("click", () => showView("profil")));
   const invites = store.invitations.filter(item => item.familyId === user.familyId && item.status === "pending");
   const otherMembers = Math.max(0, (store.members || []).length - 1);
   $("#memberCount").textContent = `+${otherMembers}`;
   $("#memberCopy").textContent = otherMembers ? `${otherMembers + 1} Mitglieder planen zusammen.${invites.length ? ` ${invites.length} Einladung${invites.length > 1 ? "en" : ""} offen.` : ""}` : "Lade deine Familie dazu ein.";
+  $("#notificationButton b").classList.toggle("hidden", !(store.receivedInvitations || []).length);
 }
 
 function renderCalendar() {
@@ -257,13 +282,36 @@ function openEventModal(date = TODAY) { $("#eventDate").value = date; openModal(
 let toastTimer;
 function showToast(message) { const toast = $("#toast"); toast.querySelector("p").textContent = message; toast.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(() => toast.classList.remove("show"), 3100); }
 
-async function openEventDetail(event) {
+async function openEventDetailLegacy(event) {
   if (!event) return;
   const relatedFiles = familyFiles().filter(file => file.eventId === event.id);
   const tiles = await Promise.all(relatedFiles.map(fileTile));
   $("#moduleView").innerHTML = `<div class="detail-view"><button class="back-button" id="backToCalendar">← Zurück zum Kalender</button><div class="detail-head"><div class="detail-pip ${event.calendar}"></div><div><p>${calendarNames[event.calendar].toUpperCase()} · ${formatDate(event.date)}</p><h2>${escapeHtml(event.title)}</h2><span>${timeLabel(event.time)}${event.attendees ? ` · ${escapeHtml(event.attendees)}` : ""}</span></div></div>${event.note ? `<div class="note-card"><p>NOTIZ</p><div>${escapeHtml(event.note).replace(/\n/g,"<br>")}</div></div>` : ""}<div class="detail-block"><div class="section-heading"><div><p>ANHÄNGE</p><h3>${relatedFiles.length ? `${relatedFiles.length} Datei${relatedFiles.length === 1 ? "" : "en"}` : "Noch keine Anhänge"}</h3></div></div>${relatedFiles.length ? `<div class="file-strip">${tiles.join("")}</div>` : `<p class="soft-copy">Füge Fotos, Einladungen oder Dokumente direkt zum Termin hinzu.</p>`}</div></div>`;
   showView("detail");
   $("#backToCalendar").addEventListener("click", () => showView("kalender"));
+  wireFileTiles();
+}
+
+async function openEventDetail(event) {
+  if (!event) return;
+  const relatedFiles = familyFiles().filter(file => file.eventId === event.id);
+  const tiles = await Promise.all(relatedFiles.map(fileTile));
+  $("#moduleView").innerHTML = `<div class="detail-view"><button class="back-button" id="backToCalendar" type="button">← Zurück zum Kalender</button><div class="detail-head"><div class="detail-pip ${event.calendar}"></div><div><p>${calendarNames[event.calendar].toUpperCase()} · ${formatDate(event.date)}</p><h2>${escapeHtml(event.title)}</h2><span>${timeLabel(event.time)}${event.attendees ? ` · ${escapeHtml(event.attendees)}` : ""}</span></div></div>${event.note ? `<div class="note-card"><p>NOTIZ</p><div>${escapeHtml(event.note).replace(/\n/g, "<br>")}</div></div>` : ""}<div class="detail-block"><div class="section-heading"><div><p>ANHÄNGE</p><h3>${relatedFiles.length ? `${relatedFiles.length} Datei${relatedFiles.length === 1 ? "" : "en"}` : "Noch keine Anhänge"}</h3></div></div>${relatedFiles.length ? `<div class="file-strip">${tiles.join("")}</div>` : `<p class="soft-copy">Füge Fotos, Einladungen oder Dokumente direkt zum Termin hinzu.</p>`}</div><div class="detail-actions"><span>Beim Löschen bleiben angehängte Dateien in eurer Dateiablage.</span><button class="delete-event" id="deleteEvent" type="button">Eintrag löschen</button></div></div>`;
+  showView("detail");
+  $("#backToCalendar").addEventListener("click", () => showView("kalender"));
+  $("#deleteEvent").addEventListener("click", async () => {
+    if (!confirm(`„${event.title}“ wirklich löschen?`)) return;
+    const button = $("#deleteEvent");
+    button.disabled = true;
+    button.textContent = "Wird gelöscht …";
+    const { error } = await supabaseClient.from("events").delete().eq("id", event.id);
+    if (error) { button.disabled = false; button.textContent = "Eintrag löschen"; showToast(readableError(error, "Eintrag konnte nicht gelöscht werden")); return; }
+    store.events = store.events.filter(item => item.id !== event.id);
+    store.files.forEach(file => { if (file.eventId === event.id) file.eventId = null; });
+    renderAll();
+    showView("kalender");
+    showToast("Eintrag gelöscht");
+  });
   wireFileTiles();
 }
 
@@ -280,7 +328,7 @@ function showView(view) {
   if (view === "profil") renderProfileModule();
 }
 
-function renderProfileModule() {
+function renderProfileModuleLegacy() {
   const user = currentUser();
   $("#moduleView").innerHTML = `<div class="module-head"><div><p>DEIN BEREICH</p><h2>Profil &amp; Familienraum</h2><span>So sehen dich deine Familie und deine Einladungen.</span></div></div><div class="profile-layout"><aside class="profile-summary"><div class="profile-photo large" id="profilePreview">${user.avatar ? `<img src="${user.avatar}" alt="" />` : initials(user.username)}</div><strong>${escapeHtml(user.username)}</strong><small>${escapeHtml(user.email)}</small><label class="avatar-change">Profilbild ändern<input id="avatarInput" type="file" accept="image/*" /></label><button class="logout-button" id="logoutButton">Abmelden</button></aside><form class="profile-form" id="profileForm"><div class="profile-section"><p>PERSÖNLICHE DATEN</p><label>Dein Name<input name="username" required maxlength="28" value="${escapeHtml(user.username)}" /></label><label>E-Mail-Adresse<input name="email" type="email" required value="${escapeHtml(user.email)}" /></label></div><div class="profile-section"><p>FAMILIENRAUM</p><label>Name eurer Familie<input name="familyName" required maxlength="35" value="${escapeHtml(user.familyName)}" /></label><span class="profile-help">Alle Einladungen und Einträge bleiben in diesem Familienraum.</span></div><div class="profile-section"><p>PASSWORT ÄNDERN</p><label>Neues Passwort <small>optional · mindestens 6 Zeichen</small><input name="newPassword" type="password" minlength="6" placeholder="Nur ausfüllen, wenn du es ändern willst" autocomplete="new-password" /></label></div><div class="profile-save"><span>Änderungen werden direkt gespeichert.</span><button>Profil speichern <b>→</b></button></div></form></div>`;
   const receivedInvitations = store.receivedInvitations || [];
@@ -333,6 +381,96 @@ function renderProfileModule() {
     showToast(email !== user.email ? "Profil aktualisiert – prüfe deine E-Mails" : "Profil aktualisiert");
   });
   $("#logoutButton").addEventListener("click", async () => { await supabaseClient.auth.signOut(); store = emptyStore(); showAuth(); });
+}
+
+function renderProfileModule() {
+  const user = currentUser();
+  if (!user) return;
+  const canManage = isFamilyOwner();
+  const members = store.members || [];
+  const received = store.receivedInvitations || [];
+  const sent = store.invitations.filter(invitation => invitation.status === "pending");
+  const ownAvatar = user.avatar ? `<img src="${escapeHtml(user.avatar)}" alt="" />` : initials(user.username);
+  const memberList = members.length ? members.map(member => `<article class="family-member"><span class="member-photo">${member.avatar ? `<img src="${escapeHtml(member.avatar)}" alt="" />` : initials(member.username)}</span><span><strong>${escapeHtml(member.username)}${member.id === user.id ? " (du)" : ""}</strong><small>${member.role === "owner" ? "Organisator:in" : "Mitglied"}${member.email ? ` · ${escapeHtml(member.email)}` : ""}</small></span></article>`).join("") : `<p class="profile-help">Familienmitglieder werden gerade geladen.</p>`;
+  const receivedMarkup = received.length ? `<section class="profile-section invitation-section"><p>OFFENE EINLADUNGEN</p>${received.map(invitation => `<div class="received-invite"><div><strong>Einladung in einen Familienraum</strong><small>${escapeHtml(invitation.message || "Du wurdest zu einem Familienkalender eingeladen.")}</small></div><button type="button" data-accept-invite="${invitation.id}">Beitreten</button></div>`).join("")}</section>` : "";
+  const sentMarkup = canManage ? `<section class="profile-section invitation-section"><p>VERSENDETE EINLADUNGEN</p>${sent.length ? sent.map(invitation => `<div class="received-invite sent-invite"><div><strong>${escapeHtml(invitation.email)}</strong><small>${escapeHtml(invitation.message || "Wartet darauf, angenommen zu werden.")}</small></div><button type="button" data-cancel-invite="${invitation.id}">Zurückziehen</button></div>`).join("") : `<span class="profile-help">Noch keine offenen Einladungen. Über „Familie einladen“ kannst du starten.</span>`}</section>` : "";
+  const familyField = canManage
+    ? `<label>Name eurer Familie<input name="familyName" required maxlength="35" value="${escapeHtml(user.familyName)}" /></label><span class="profile-help">Du organisierst den Familienraum und kannst seinen Namen ändern.</span>`
+    : `<label>Name eurer Familie<input name="familyName" readonly value="${escapeHtml(user.familyName)}" /></label><span class="profile-help">Den Familiennamen kann nur die organisierende Person ändern.</span>`;
+  $("#moduleView").innerHTML = `<div class="module-head"><div><p>DEIN BEREICH</p><h2>Profil &amp; Familienraum</h2><span>Dein Profil ist für dich bearbeitbar und für deine Familie sichtbar.</span></div></div><div class="profile-layout"><aside class="profile-summary"><div class="profile-photo large" id="profilePreview">${ownAvatar}</div><strong>${escapeHtml(user.username)}</strong><small>${escapeHtml(user.email)}</small><label class="avatar-change">Profilbild ändern<input id="avatarInput" type="file" accept="image/*" /></label><button class="logout-button" id="logoutButton" type="button">Abmelden</button></aside><form class="profile-form" id="profileForm">${receivedMarkup}<section class="profile-section"><p>PERSÖNLICHE DATEN</p><label>Dein Name<input name="username" required maxlength="28" value="${escapeHtml(user.username)}" autocomplete="name" /></label><label>E-Mail-Adresse<input name="email" type="email" required value="${escapeHtml(user.email)}" autocomplete="email" /></label></section><section class="profile-section"><p>FAMILIENRAUM</p>${familyField}</section><section class="profile-section"><p>FAMILIENMITGLIEDER</p><div class="family-member-list">${memberList}</div></section>${sentMarkup}<section class="profile-section"><p>PASSWORT ÄNDERN</p><label>Neues Passwort <small>optional · mindestens 6 Zeichen</small><input name="newPassword" type="password" minlength="6" placeholder="Nur ausfüllen, wenn du es ändern willst" autocomplete="new-password" /></label></section><div class="profile-save"><span>Änderungen werden direkt gespeichert.</span><button type="submit">Profil speichern <b>→</b></button></div></form></div>`;
+
+  document.querySelectorAll("[data-accept-invite]").forEach(button => button.addEventListener("click", async () => {
+    if (button.disabled) return;
+    button.disabled = true;
+    button.textContent = "Wird beigetreten …";
+    const { data: familyId, error } = await supabaseClient.rpc("accept_family_invitation", { invitation_id: button.dataset.acceptInvite });
+    if (error) { button.disabled = false; button.textContent = "Beitreten"; showToast(readableError(error, "Einladung konnte nicht angenommen werden")); return; }
+    localStorage.setItem("familio.active-family", familyId);
+    const loaded = await loadWorkspace();
+    if (!loaded) { button.disabled = false; button.textContent = "Beitreten"; return; }
+    renderAll();
+    showView("kalender");
+    showToast("Du bist dem Familienraum beigetreten");
+  }));
+  document.querySelectorAll("[data-cancel-invite]").forEach(button => button.addEventListener("click", async () => {
+    if (!confirm("Diese Einladung wirklich zurückziehen?")) return;
+    const { error } = await supabaseClient.from("invitations").update({ status: "cancelled" }).eq("id", button.dataset.cancelInvite);
+    if (error) { showToast(readableError(error, "Einladung konnte nicht zurückgezogen werden")); return; }
+    store.invitations = store.invitations.filter(invitation => invitation.id !== button.dataset.cancelInvite);
+    renderAccount();
+    renderProfileModule();
+    showToast("Einladung zurückgezogen");
+  }));
+  $("#avatarInput").addEventListener("change", async event => {
+    const file = event.target.files[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/") || file.size > 50 * 1024 * 1024) { showToast("Bitte wähle ein Bild bis 50 MB"); return; }
+    const filename = file.name.replace(/[^a-zA-Z0-9._-]/g, "-");
+    const path = `${user.familyId}/avatars/${user.id}-${Date.now()}-${filename}`;
+    const { error: uploadError } = await supabaseClient.storage.from("family-files").upload(path, file, { upsert: false, contentType: file.type });
+    if (uploadError) { showToast(readableError(uploadError, "Profilbild konnte nicht hochgeladen werden")); return; }
+    const { error: updateError } = await supabaseClient.from("profiles").update({ avatar_path: path }).eq("id", user.id);
+    if (updateError) { await supabaseClient.storage.from("family-files").remove([path]); showToast(readableError(updateError, "Profilbild konnte nicht gespeichert werden")); return; }
+    if (user.avatarPath) await supabaseClient.storage.from("family-files").remove([user.avatarPath]);
+    user.avatarPath = path;
+    user.avatar = await fileUrl({ storagePath: path });
+    const ownMember = store.members.find(member => member.id === user.id);
+    if (ownMember) ownMember.avatar = user.avatar;
+    renderAccount();
+    renderProfileModule();
+    showToast("Profilbild gespeichert");
+  });
+  $("#profileForm").addEventListener("submit", async event => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const email = form.get("email").trim().toLowerCase();
+    const displayName = form.get("username").trim();
+    const familyName = form.get("familyName").trim();
+    if (!displayName) { showToast("Bitte gib deinen Namen ein"); return; }
+    const submit = event.currentTarget.querySelector("button[type=submit]");
+    submit.disabled = true;
+    if (email !== user.email) {
+      const { error } = await supabaseClient.auth.updateUser({ email });
+      if (error) { submit.disabled = false; showToast(readableError(error, "E-Mail konnte nicht geändert werden")); return; }
+    }
+    if (form.get("newPassword")) {
+      const { error } = await supabaseClient.auth.updateUser({ password: form.get("newPassword") });
+      if (error) { submit.disabled = false; showToast(readableError(error, "Passwort konnte nicht geändert werden")); return; }
+    }
+    const { error: profileError } = await supabaseClient.from("profiles").update({ display_name: displayName, email }).eq("id", user.id);
+    if (profileError) { submit.disabled = false; showToast(readableError(profileError, "Profil konnte nicht gespeichert werden")); return; }
+    if (canManage && familyName !== user.familyName) {
+      const { error: familyError } = await supabaseClient.from("families").update({ name: familyName }).eq("id", user.familyId);
+      if (familyError) { submit.disabled = false; showToast(readableError(familyError, "Profil gespeichert, Familienname konnte nicht geändert werden")); return; }
+    }
+    const loaded = await loadWorkspace();
+    submit.disabled = false;
+    if (!loaded) return;
+    renderAll();
+    renderProfileModule();
+    showToast("Profil aktualisiert");
+  });
+  $("#logoutButton").addEventListener("click", async () => { await supabaseClient.auth.signOut(); store = emptyStore(); localStorage.removeItem("familio.active-family"); showAuth(); });
 }
 
 function renderTaskModule() {
@@ -447,12 +585,19 @@ $("#prevMonth").addEventListener("click", () => shiftCalendar(-1));
 $("#nextMonth").addEventListener("click", () => shiftCalendar(1));
 $("#todayButton").addEventListener("click", () => { shownDate = new Date(2026, 6, 23); renderCalendar(); showToast("Zurück zu heute"); });
 $("#showDayButton").addEventListener("click", () => { calendarMode = "day"; shownDate = new Date(2026, 6, 23); renderCalendar(); });
-$("#notificationButton").addEventListener("click", () => showToast("Erinnerungen werden direkt bei deinen Terminen verwaltet"));
+$("#notificationButton").addEventListener("click", () => {
+  if ((store.receivedInvitations || []).length) { showView("profil"); showToast("Du hast eine offene Einladung"); return; }
+  showToast("Erinnerungen werden direkt bei deinen Terminen verwaltet");
+});
 $("#familySwitcher").addEventListener("click", () => showToast("Du bist in deinem Familienraum"));
 $(".add-calendar").addEventListener("click", () => showToast("Dein Familienraum ist dein gemeinsamer Kalender"));
 $("#profileButton").addEventListener("click", () => showView("profil"));
-$("#inviteButton").addEventListener("click", () => openModal("inviteModal"));
-$("#inviteInline").addEventListener("click", () => openModal("inviteModal"));
+function openInvitationModal() {
+  if (!isFamilyOwner()) { showToast("Einladungen kann die organisierende Person versenden."); return; }
+  openModal("inviteModal");
+}
+$("#inviteButton").addEventListener("click", openInvitationModal);
+$("#inviteInline").addEventListener("click", openInvitationModal);
 const sidebar = $(".sidebar");
 const mobileMenu = $("#mobileMenu");
 const sidebarScrim = $("#sidebarScrim");
@@ -496,7 +641,27 @@ $("#eventForm").addEventListener("submit", async event => {
   event.currentTarget.reset(); $("#attachmentName").textContent = "Bis zu 8 Dateien · für alle sichtbar";
   closeModal("eventModal"); renderAll(); showView("kalender"); showToast("Termin gespeichert");
 });
-$("#inviteForm").addEventListener("submit", async event => { event.preventDefault(); const data = new FormData(event.currentTarget); const user = currentUser(); const { data: invitation, error } = await supabaseClient.rpc("create_family_invitation", { target_family_id: user.familyId, invitee_email: data.get("email").trim().toLowerCase(), invite_message: data.get("message").trim() || null }); if (error) { showToast("Einladung konnte nicht erstellt werden"); return; } store.invitations.unshift(mapInvitation(invitation)); closeModal("inviteModal"); event.currentTarget.reset(); renderAccount(); showToast("Einladung im Familienraum gespeichert"); });
+$("#inviteForm").addEventListener("submit", async event => {
+  event.preventDefault();
+  if (!isFamilyOwner()) { showToast("Einladungen kann die organisierende Person versenden."); return; }
+  const form = new FormData(event.currentTarget);
+  const user = currentUser();
+  const email = form.get("email").trim().toLowerCase();
+  if (!email) { showToast("Bitte gib eine E-Mail-Adresse ein"); return; }
+  if (email === user.email.toLowerCase()) { showToast("Du kannst dich nicht selbst einladen"); return; }
+  const submit = event.currentTarget.querySelector("button[type=submit]");
+  submit.disabled = true;
+  submit.textContent = "Einladung wird erstellt …";
+  const { data: invitation, error } = await supabaseClient.rpc("create_family_invitation", { target_family_id: user.familyId, invitee_email: email, invite_message: form.get("message").trim() || null });
+  submit.disabled = false;
+  submit.innerHTML = "Einladung vorbereiten <span>→</span>";
+  if (error) { showToast(readableError(error, "Einladung konnte nicht erstellt werden")); return; }
+  store.invitations = [mapInvitation(invitation), ...store.invitations.filter(item => item.id !== invitation.id)];
+  closeModal("inviteModal");
+  event.currentTarget.reset();
+  renderAccount();
+  showToast("Einladung erstellt – sie kann im Profil angenommen werden");
+});
 document.querySelectorAll("[data-auth-mode]").forEach(button => button.addEventListener("click", () => configureAuth(button.dataset.authMode)));
 document.querySelectorAll("[data-view]").forEach(link => link.addEventListener("click", event => { if (!link.classList.contains("nav-item")) return; event.preventDefault(); showView(link.dataset.view); closeSidebar(); }));
 $(".arrow-button").addEventListener("click", () => showView("aufgaben"));
