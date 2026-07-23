@@ -76,7 +76,7 @@ async function loadWorkspace() {
   if (profileError || !profile) { showToast("Dein Profil wird noch eingerichtet – bitte gleich erneut anmelden"); return false; }
   const { data: memberships, error: membersError } = await supabaseClient.from("family_members").select("family_id, role").eq("user_id", authUser.id);
   if (membersError || !memberships?.length) { showToast("Dein Familienraum konnte nicht geladen werden"); return false; }
-  const preferredFamilyId = localStorage.getItem("familio.active-family");
+  const preferredFamilyId = profile.active_family_id || localStorage.getItem("familio.active-family");
   const selectedMembership = memberships.find(item => item.family_id === preferredFamilyId) || memberships.find(item => item.role === "owner") || memberships[0];
   const familyId = selectedMembership.family_id;
   const [familyResult, eventsResult, tasksResult, filesResult, invitationsResult, receivedInvitationsResult, memberResult] = await Promise.all([

@@ -17,6 +17,9 @@ create table if not exists public.families (
   created_at timestamptz not null default now()
 );
 
+alter table public.profiles
+  add column if not exists active_family_id uuid references public.families(id) on delete set null;
+
 create table if not exists public.family_members (
   family_id uuid not null references public.families(id) on delete cascade,
   user_id uuid not null references public.profiles(id) on delete cascade,
@@ -99,6 +102,8 @@ begin
 
   insert into public.family_members (family_id, user_id, role)
   values (new_family_id, new.id, 'owner');
+
+  update public.profiles set active_family_id = new_family_id where id = new.id;
 
   return new;
 end;
@@ -193,6 +198,10 @@ begin
   insert into public.family_members (family_id, user_id, role)
   values (invitation.family_id, auth.uid(), 'member')
   on conflict do nothing;
+
+  update public.profiles
+  set active_family_id = invitation.family_id, updated_at = now()
+  where id = auth.uid();
 
   update public.invitations set status = 'accepted', accepted_at = now() where id = invitation.id;
   return invitation.family_id;

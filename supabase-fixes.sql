@@ -1,6 +1,20 @@
 -- familio: einmalige Ergänzung für bestehende Installationen
 -- Im Supabase Dashboard unter SQL Editor > New query vollständig ausführen.
 
+alter table public.profiles
+  add column if not exists active_family_id uuid references public.families(id) on delete set null;
+
+with preferred_family as (
+  select distinct on (user_id) user_id, family_id
+  from public.family_members
+  order by user_id, case when role = 'member' then 0 else 1 end, joined_at desc
+)
+update public.profiles profile
+set active_family_id = preferred_family.family_id
+from preferred_family
+where profile.id = preferred_family.user_id
+  and profile.active_family_id is null;
+
 create or replace function public.shares_family_with(target_user_id uuid)
 returns boolean
 language sql stable security definer set search_path = public
@@ -72,6 +86,10 @@ begin
   insert into public.family_members (family_id, user_id, role)
   values (invitation.family_id, auth.uid(), 'member')
   on conflict do nothing;
+
+  update public.profiles
+  set active_family_id = invitation.family_id, updated_at = now()
+  where id = auth.uid();
 
   update public.invitations
   set status = 'accepted', accepted_at = now()
