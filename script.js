@@ -269,6 +269,7 @@ function renderHighlights() {
 function renderTasks() {
   const tasks = familyTasks().sort((a, b) => Number(a.done) - Number(b.done));
   const open = tasks.filter(task => !task.done).length;
+  $(".nav-item[data-view='aufgaben'] .pill").textContent = open;
   $(".reminder-ring strong").textContent = open;
   $(".reminder-card h3").textContent = open ? "Alles im Blick!" : "Alles erledigt!";
   $(".reminder-card small").textContent = tasks.length ? `${tasks.length - open} von ${tasks.length} Aufgaben erledigt` : "Lege deine erste Aufgabe an";
