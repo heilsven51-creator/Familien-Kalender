@@ -628,18 +628,29 @@ document.querySelectorAll(".modal-backdrop").forEach(backdrop => backdrop.addEve
 document.addEventListener("keydown", event => { if (event.key === "Escape") document.querySelectorAll(".modal-backdrop.open").forEach(modal => closeModal(modal.id)); });
 $("#eventAttachment").addEventListener("change", event => { const count = event.target.files.length; $("#attachmentName").textContent = count ? `${count} Datei${count > 1 ? "en" : ""} ausgewählt` : "Bis zu 8 Dateien · für alle sichtbar"; });
 
+let eventSubmissionPending = false;
 $("#eventForm").addEventListener("submit", async event => {
   event.preventDefault();
-  const form = new FormData(event.currentTarget);
+  if (eventSubmissionPending) return;
+  eventSubmissionPending = true;
+  const formElement = event.currentTarget;
+  const submitButton = formElement.querySelector("button[type=submit]");
+  submitButton.disabled = true;
+  submitButton.innerHTML = "Wird gespeichert …";
+  closeModal("eventModal");
+  const form = new FormData(formElement);
   const user = currentUser();
   const reminder = form.get("reminder") === "none" ? null : Number(form.get("reminder"));
   const { data, error } = await supabaseClient.from("events").insert({ family_id: user.familyId, created_by: user.id, title: form.get("title").trim(), event_date: form.get("date"), event_time: form.get("time") || null, calendar: form.get("calendar"), reminder_minutes: reminder, attendees: form.get("attendees"), note: form.get("note").trim() || null }).select().single();
-  if (error) { showToast("Termin konnte nicht gespeichert werden"); return; }
+  if (error) { eventSubmissionPending = false; submitButton.disabled = false; submitButton.innerHTML = "Eintrag speichern <span>→</span>"; openModal("eventModal"); showToast("Termin konnte nicht gespeichert werden"); return; }
   const newEvent = mapEvent(data);
   store.events.push(newEvent);
   await addFiles($("#eventAttachment").files, newEvent.id);
   event.currentTarget.reset(); $("#attachmentName").textContent = "Bis zu 8 Dateien · für alle sichtbar";
-  closeModal("eventModal"); renderAll(); showView("kalender"); showToast("Termin gespeichert");
+  eventSubmissionPending = false;
+  submitButton.disabled = false;
+  submitButton.innerHTML = "Eintrag speichern <span>→</span>";
+  renderAll(); showView("kalender"); showToast("Termin gespeichert");
 });
 $("#inviteForm").addEventListener("submit", async event => {
   event.preventDefault();
