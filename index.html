@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#10111d" />
+    <title>familio — Euer Familienkalender</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <a class="brand" href="#" aria-label="familio Startseite">
+          <span class="brand-mark"><i></i><i></i><i></i></span>
+          <span>familio</span>
+        </a>
+
+        <button class="family-switcher" id="familySwitcher">
+          <span class="family-avatar" id="familyAvatar">?</span>
+          <span class="family-switcher-text"><small>DEINE FAMILIE</small><strong id="familyName">Mein Familienraum</strong></span>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>
+        </button>
+
+        <nav class="main-nav" aria-label="Hauptnavigation">
+          <a class="nav-item active" href="#kalender" data-view="kalender"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M7 3v4M17 3v4M3 10h18"/></svg>Kalender</a>
+          <a class="nav-item" href="#aufgaben" data-view="aufgaben"><svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13"/><path d="m3 6 1.5 1.5L6.5 5M3 12l1.5 1.5L6.5 11M3 18l1.5 1.5L6.5 17"/></svg>Aufgaben <span class="pill">3</span></a>
+          <a class="nav-item" href="#momente" data-view="momente"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="8.5" cy="9" r="1.5"/><path d="m4 17 5-5 4 3 3-3 4 5"/></svg>Momente</a>
+          <a class="nav-item" href="#dateien" data-view="dateien"><svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z"/><path d="M14 3v6h6"/></svg>Dateien</a>
+        </nav>
+
+        <div class="sidebar-label">FAMILIENKALENDER</div>
+        <div class="calendar-list" id="calendarList">
+          <label><input checked type="checkbox" data-calendar="familie" /><span class="dot peach"></span>Familie</label>
+          <label><input checked type="checkbox" data-calendar="schule" /><span class="dot yellow"></span>Schule &amp; Kita</label>
+          <label><input checked type="checkbox" data-calendar="sport" /><span class="dot blue"></span>Sport &amp; Freizeit</label>
+          <label><input checked type="checkbox" data-calendar="geburtstag" /><span class="dot lilac"></span>Geburtstage</label>
+        </div>
+        <button class="add-calendar"><span>+</span> Kalender hinzufügen</button>
+
+        <div class="sidebar-foot">
+          <button class="invite-card" id="inviteButton">
+            <span class="invite-icon">+</span>
+            <span><strong>Familie einladen</strong><small>Gemeinsam planen</small></span>
+            <svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>
+          </button>
+          <button class="profile" id="profileButton" title="Profil und Einstellungen öffnen">
+            <span class="profile-avatar" id="profileAvatar">?</span>
+            <span><strong id="profileName">Dein Profil</strong><small id="profileRole">Profil &amp; Einstellungen</small></span>
+            <svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>
+          </button>
+        </div>
+      </aside>
+
+      <main class="main-content">
+        <header class="topbar">
+          <button class="mobile-menu" id="mobileMenu" aria-label="Menü öffnen"><span></span><span></span></button>
+          <div class="greeting"><p>Donnerstag, 23. Juli</p><h1 id="greetingTitle">Willkommen bei familio <span>✦</span></h1></div>
+          <div class="top-actions">
+            <button class="icon-button notification-button" id="notificationButton" aria-label="Benachrichtigungen"><svg viewBox="0 0 24 24"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg><b></b></button>
+            <button class="today-button" id="todayButton">Heute</button>
+            <button class="new-event" id="newEventButton"><span>+</span> Neuer Eintrag</button>
+          </div>
+        </header>
+
+        <section id="dashboardView">
+        <section class="content-grid">
+          <section class="calendar-section" id="kalender">
+            <div class="calendar-toolbar">
+              <div class="month-control"><button id="prevMonth" aria-label="Vorheriger Monat">‹</button><h2 id="monthTitle">Juli <span>2026</span></h2><button id="nextMonth" aria-label="Nächster Monat">›</button></div>
+              <div class="view-toggle" aria-label="Kalenderansicht"><button class="active" data-calendar-view="month">Monat</button><button data-calendar-view="week">Woche</button><button data-calendar-view="day">Tag</button></div>
+            </div>
+            <div class="calendar-wrap" id="calendarWrap">
+              <div class="weekdays"><span>Mo</span><span>Di</span><span>Mi</span><span>Do</span><span>Fr</span><span>Sa</span><span>So</span></div>
+              <div class="calendar-grid" id="calendarGrid"></div>
+            </div>
+          </section>
+
+          <aside class="right-panel">
+            <section class="day-card">
+              <div class="day-card-top"><div><p>HEUTE</p><h2>23 <span>Juli</span></h2></div><span class="sun-icon">☀</span></div>
+              <div class="today-list" id="todayList"></div>
+              <button class="link-button" id="showDayButton">Tagesansicht öffnen <span>→</span></button>
+            </section>
+
+            <section class="family-card">
+              <div class="section-heading"><div><p>GEMEINSAM</p><h3>Eure Familie</h3></div><button id="inviteInline" aria-label="Mitglied einladen">+</button></div>
+              <div class="members">
+                <div class="member member-lisa"><span id="memberInitials">?</span><i></i></div>
+                <button class="more-members" id="memberCount">+0</button>
+              </div>
+              <p class="member-copy" id="memberCopy">Lade deinen Familienraum ein.</p>
+            </section>
+
+            <section class="reminder-card">
+              <div class="reminder-ring"><svg viewBox="0 0 42 42"><circle cx="21" cy="21" r="17"/><circle class="progress" cx="21" cy="21" r="17"/></svg><strong>3</strong></div>
+              <div><p>AUFGABEN OFFEN</p><h3>Fast geschafft!</h3><small>3 von 5 diese Woche erledigt</small></div>
+              <button class="arrow-button" data-view="aufgaben">→</button>
+            </section>
+          </aside>
+        </section>
+
+        <section class="bottom-area">
+          <div class="section-heading bottom-heading"><div><p>DEIN NÄCHSTES HIGHLIGHT</p><h2>Diese Woche</h2></div><button class="text-button">Alle Termine <span>→</span></button></div>
+          <div class="highlights" id="highlightList"></div>
+        </section>
+        </section>
+        <section class="module-view hidden" id="moduleView" aria-live="polite"></section>
+      </main>
+    </div>
+
+    <div class="modal-backdrop" id="eventModal" aria-hidden="true">
+      <form class="modal event-modal" id="eventForm">
+        <button class="modal-close" type="button" data-close="eventModal" aria-label="Schließen">×</button>
+        <div class="modal-heading"><span class="modal-icon">✦</span><div><p>NEUER MOMENT</p><h2>Was steht an?</h2></div></div>
+        <label class="field-label">Titel<input id="eventTitle" name="title" required placeholder="z. B. Oma zum Kaffee" autocomplete="off" /></label>
+        <div class="form-row"><label class="field-label">Datum<input id="eventDate" name="date" type="date" required /></label><label class="field-label">Uhrzeit<input name="time" type="time" value="15:00" /></label></div>
+        <label class="field-label">Kalender<select name="calendar"><option value="familie">Familie</option><option value="schule">Schule &amp; Kita</option><option value="sport">Sport &amp; Freizeit</option><option value="geburtstag">Geburtstage</option></select></label>
+        <div class="form-row"><label class="field-label">Erinnerung<select name="reminder"><option value="none">Keine Erinnerung</option><option value="15">15 Minuten vorher</option><option value="60">1 Stunde vorher</option><option value="1440">1 Tag vorher</option></select></label><label class="field-label">Für wen?<select name="attendees"><option>Die ganze Familie</option><option>Nur für mich</option><option>Kinder</option></select></label></div>
+        <label class="field-label">Notiz<textarea name="note" placeholder="Alles Wichtige für den Termin …"></textarea></label>
+        <label class="attachment" for="eventAttachment"><input id="eventAttachment" type="file" multiple /><span>⌁</span><div><strong>Fotos oder Dateien anhängen</strong><small id="attachmentName">Bis zu 8 Dateien · für alle sichtbar</small></div></label>
+        <div class="modal-footer"><button type="button" class="cancel-button" data-close="eventModal">Abbrechen</button><button type="submit" class="save-button">Eintrag speichern <span>→</span></button></div>
+      </form>
+    </div>
+
+    <div class="modal-backdrop" id="inviteModal" aria-hidden="true">
+      <form class="modal invite-modal" id="inviteForm">
+        <button class="modal-close" type="button" data-close="inviteModal" aria-label="Schließen">×</button>
+        <div class="invite-illustration"><span>♡</span><span>✦</span><span>+</span><div class="little-people"><i></i><i></i><i></i></div></div>
+        <div class="modal-heading centered"><p>GEMEINSAM IST ES LEICHTER</p><h2>Hol deine Familie dazu.</h2><span>Die Einladung erscheint direkt in eurem Familienraum.</span></div>
+        <label class="field-label">E-Mail-Adresse<input name="email" type="email" required placeholder="name@beispiel.de" /></label>
+        <label class="field-label">Nachricht (optional)<input name="message" placeholder="Komm in unseren Familienkalender!" /></label>
+        <div class="modal-footer"><button type="submit" class="save-button full">Einladung vorbereiten <span>→</span></button></div>
+      </form>
+    </div>
+
+    <div class="toast" id="toast" role="status"><span>✓</span><p>Gespeichert</p></div>
+    <section class="auth-gate" id="authGate" aria-live="polite">
+      <div class="auth-panel">
+        <a class="brand auth-brand" href="#"><span class="brand-mark"><i></i><i></i><i></i></span><span>familio</span></a>
+        <div class="auth-copy"><p id="authEyebrow">DEIN ZUHAUSE FÜR ALLES, WAS ZÄHLT</p><h1 id="authTitle">Schön, dass du da bist.</h1><span id="authSubcopy">Erstelle deinen persönlichen Familienraum in weniger als einer Minute.</span></div>
+        <div class="auth-tabs"><button class="active" data-auth-mode="signup">Konto erstellen</button><button data-auth-mode="login">Anmelden</button></div>
+        <form id="authForm" class="auth-form">
+          <label id="usernameField">Dein Name<input name="username" required maxlength="28" placeholder="z. B. Lisa Sommer" autocomplete="name" /></label>
+          <label id="familyField">Name eurer Familie<input name="familyName" required maxlength="35" placeholder="z. B. Sommer & Co." /></label>
+          <label>E-Mail-Adresse<input name="email" type="email" required placeholder="du@beispiel.de" autocomplete="email" /></label>
+          <label>Passwort<input name="password" type="password" required minlength="6" placeholder="Mindestens 6 Zeichen" autocomplete="new-password" /></label>
+          <button class="auth-submit" type="submit"><span id="authSubmitText">Familienraum starten</span> <b>→</b></button>
+        </form>
+        <p class="auth-note">Deine Daten bleiben in diesem Prototyp auf diesem Gerät.</p>
+      </div>
+      <div class="auth-art" aria-hidden="true"><div class="art-orbit orbit-one"></div><div class="art-orbit orbit-two"></div><div class="art-card card-one"><span>✦</span><p>Alle zusammen.</p></div><div class="art-card card-two"><div class="art-dots"><i></i><i></i><i></i></div><strong>Familienzeit</strong><small>Erinnern. Teilen. Erleben.</small></div><div class="art-blob"></div></div>
+    </section>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="supabase-config.js"></script>
+    <script src="script.js"></script>
+  </body>
+</html>
