@@ -12,7 +12,8 @@
   </head>
   <body>
     <div class="app-shell">
-      <aside class="sidebar">
+      <aside class="sidebar" id="sidebar">
+        <button class="sidebar-close" id="sidebarClose" type="button" aria-label="Menü schließen">&times;</button>
         <a class="brand" href="#" aria-label="familio Startseite">
           <span class="brand-mark"><i></i><i></i><i></i></span>
           <span>familio</span>
@@ -53,6 +54,7 @@
           </button>
         </div>
       </aside>
+      <button class="sidebar-scrim" id="sidebarScrim" type="button" aria-label="Menü schließen" tabindex="-1"></button>
 
       <main class="main-content">
         <header class="topbar">

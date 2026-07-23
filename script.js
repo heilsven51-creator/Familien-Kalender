@@ -453,7 +453,28 @@ $(".add-calendar").addEventListener("click", () => showToast("Dein Familienraum 
 $("#profileButton").addEventListener("click", () => showView("profil"));
 $("#inviteButton").addEventListener("click", () => openModal("inviteModal"));
 $("#inviteInline").addEventListener("click", () => openModal("inviteModal"));
-$("#mobileMenu").addEventListener("click", () => $(".sidebar").classList.toggle("open"));
+const sidebar = $(".sidebar");
+const mobileMenu = $("#mobileMenu");
+const sidebarScrim = $("#sidebarScrim");
+mobileMenu.setAttribute("aria-controls", "sidebar");
+mobileMenu.setAttribute("aria-expanded", "false");
+function closeSidebar() {
+  sidebar.classList.remove("open");
+  sidebarScrim.classList.remove("visible");
+  mobileMenu.setAttribute("aria-expanded", "false");
+  document.body.classList.remove("sidebar-open");
+}
+function toggleSidebar() {
+  const isOpen = sidebar.classList.toggle("open");
+  sidebarScrim.classList.toggle("visible", isOpen);
+  mobileMenu.setAttribute("aria-expanded", String(isOpen));
+  document.body.classList.toggle("sidebar-open", isOpen);
+}
+mobileMenu.addEventListener("click", toggleSidebar);
+$("#sidebarClose").addEventListener("click", closeSidebar);
+sidebarScrim.addEventListener("click", closeSidebar);
+document.addEventListener("keydown", event => { if (event.key === "Escape") closeSidebar(); });
+window.addEventListener("resize", () => { if (window.innerWidth > 860) closeSidebar(); });
 
 document.querySelectorAll("[data-calendar]").forEach(input => input.addEventListener("change", renderCalendar));
 document.querySelectorAll("[data-calendar-view]").forEach(button => button.addEventListener("click", () => { calendarMode = button.dataset.calendarView; renderCalendar(); }));
@@ -477,7 +498,7 @@ $("#eventForm").addEventListener("submit", async event => {
 });
 $("#inviteForm").addEventListener("submit", async event => { event.preventDefault(); const data = new FormData(event.currentTarget); const user = currentUser(); const { data: invitation, error } = await supabaseClient.rpc("create_family_invitation", { target_family_id: user.familyId, invitee_email: data.get("email").trim().toLowerCase(), invite_message: data.get("message").trim() || null }); if (error) { showToast("Einladung konnte nicht erstellt werden"); return; } store.invitations.unshift(mapInvitation(invitation)); closeModal("inviteModal"); event.currentTarget.reset(); renderAccount(); showToast("Einladung im Familienraum gespeichert"); });
 document.querySelectorAll("[data-auth-mode]").forEach(button => button.addEventListener("click", () => configureAuth(button.dataset.authMode)));
-document.querySelectorAll("[data-view]").forEach(link => link.addEventListener("click", event => { if (!link.classList.contains("nav-item")) return; event.preventDefault(); showView(link.dataset.view); $(".sidebar").classList.remove("open"); }));
+document.querySelectorAll("[data-view]").forEach(link => link.addEventListener("click", event => { if (!link.classList.contains("nav-item")) return; event.preventDefault(); showView(link.dataset.view); closeSidebar(); }));
 $(".arrow-button").addEventListener("click", () => showView("aufgaben"));
 
 async function initializeApp() {
